@@ -2,7 +2,7 @@
 const peer = new RTCPeerConnection({
   iceServers: [
     {
-      urls: "stun:stun.stunprotocol.org"
+      urls: "stun:stunserver2024.stunprotocol.org"
     }
   ]
 });
