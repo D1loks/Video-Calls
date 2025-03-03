@@ -1,49 +1,82 @@
 const express = require('express');
-const path = require('path');
-
 const app = express();
+const server = require('http').createServer(app);
+const io = require('socket.io')(server);
 
-const http = require('http').createServer(app);
-const io = require('socket.io')(http);
+app.use(express.static('public'));
 
-app.use(express.static(path.join(__dirname, '../public')));
-
-let connectedUsers = [];
+const users = new Map();
 
 io.on('connection', socket => {
-  connectedUsers.push(socket.id);
+    socket.on('requestUserList', (data) => {
+        if (!data?.userName) {
+            console.log('Invalid user data:', data);
+            return;
+        }
 
-  socket.on('disconnect', () => {
-    connectedUsers = connectedUsers.filter(user => user !== socket.id)
-    socket.broadcast.emit('update-user-list', { userIds: connectedUsers })
-  })
+        console.log('User connected:', {
+            socketId: socket.id,
+            userName: data.userName
+        });
 
-  socket.on('mediaOffer', data => {
-    socket.to(data.to).emit('mediaOffer', {
-      from: data.from,
-      offer: data.offer
+        users.set(socket.id, {
+            id: socket.id,
+            name: data.userName
+        });
+
+        broadcastUserList();
     });
-  });
-  
-  socket.on('mediaAnswer', data => {
-    socket.to(data.to).emit('mediaAnswer', {
-      from: data.from,
-      answer: data.answer
+
+    socket.on('disconnect', () => {
+        if (users.has(socket.id)) {
+            users.delete(socket.id);
+            // Відправляємо оновлений список всім користувачам
+            broadcastUserList();
+        }
     });
-  });
 
-  socket.on('iceCandidate', data => {
-    socket.to(data.to).emit('remotePeerIceCandidate', {
-      candidate: data.candidate
-    })
-  })
+    socket.on('callUser', (data) => {
+        socket.to(data.to).emit('incomingCall', {
+            from: data.from,
+            fromUserName: data.fromUserName,
+            offer: data.offer
+        });
+    });
 
-  socket.on('requestUserList', () => {
-    socket.emit('update-user-list', { userIds: connectedUsers });
-    socket.broadcast.emit('update-user-list', { userIds: connectedUsers });
-  });
+    socket.on('callAccepted', (data) => {
+        socket.to(data.to).emit('callAccepted', {
+            from: data.from,
+            answer: data.answer
+        });
+    });
+
+    socket.on('callRejected', (data) => {
+        socket.to(data.to).emit('callRejected', {
+            from: data.from
+        });
+    });
+
+    socket.on('iceCandidate', (data) => {
+        socket.to(data.to).emit('remotePeerIceCandidate', {
+            candidate: data.candidate
+        });
+    });
+
+    socket.on('hangUp', (data) => {
+        socket.to(data.to).emit('hangUp');
+    });
+
+    // Додаємо функцію для розсилки оновленого списку
+    function broadcastUserList() {
+        const usersList = Array.from(users.values());
+        console.log('Current users in Map:', usersList);
+        
+        io.emit('update-user-list', {
+            users: usersList
+        });
+    }
 });
 
-http.listen(3000, () => {
-  console.log('listening on *:3000');
+server.listen(3000, () => {
+    console.log('Server running on port 3000');
 });
